@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sovereigns' Availability</title>
+
+<!-- ============================================================
+     SOVEREIGNS' AVAILABILITY BOARD
+     Built since I'm too lazy to ask everyone's schedule
+     checks their own schedule once, and this view updated for everyone
+      — hosted and maintained by me. Poke around, it's all one file.:D
+     ============================================================ -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Firebase (compat SDK — simplest for a plain HTML file, no build tools needed) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<script src="firebase-config.js"></script>
+
+<style>
+    /* ---------- THEME ----------
+     Everything visual is controlled from these variables — change a
+     color once here and it updates everywhere it's used. This is the
+     black + purple "Sovereigns" look. */
+  :root{
+    --bg: #070707; /* page background — full black */
+    --panel: #141414; /* cards / panels */
+    --panel-2: #1C1C1C; /* slightly lighter panel, used for table headers, inputs */
+    --ink: #F1ECDD; /* main text color (cream) */
+    --ink-dim: #A9B8AC; /* muted/secondary text */
+    --amber: #772cac; /* the accent color for active tab, checked cells, save button */
+    --amber-dim: #662693; /* darker accent, used for focus outlines */
+    --line: rgba(241,236,221,0.13); /* subtle borders/dividers */
+
+    /* Team grid "heat" colors to show how busy/free a time slot looks based
+     on how many people are available then. */
+    --heat-0: #1C1C1C;
+    --heat-low: #df6f13;
+    --heat-mid: #B58F2E;
+    --heat-high: #6FA86B;
+    --radius: 5px;
+  }
+
+  
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+  .wrap{ max-width: 1040px; margin: 0 auto; }
+
+  /* ---------- HEADER ---------- */
+  header.top{
+    display:flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 24px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  h1{
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 34px;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.01em;
+  }
+  header.top p{
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 14.5px;
+    max-width: 46ch;
+    line-height: 1.5;
+  }
+
+  /* ---------- TAB SWITCHER (My availability / Team availability) ---------- */
+  .tabs{
+    display:flex;
+    gap: 4px;
+    background: var(--panel);
+    padding: 4px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .tab-btn{
+    border: none;
+    background: transparent;
+    color: var(--ink-dim);
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 9px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .tab-btn.active{
+    background: var(--amber);
+    color: #F1ECDD;
+  }
+
+  section{ display:none; }
+  section.active{ display:block; }
+
+  .panel{
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 22px 22px 26px;
+    border: 1px solid var(--line);
+  }
+
+  /* ---------- "MY AVAILABILITY" TAB CONTROLS ---------- */
+  .name-row{
+    display:flex;
+    align-items:center;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .name-row label{
+    font-size: 13px;
+    color: var(--ink-dim);
+    font-weight: 600;
+  }
+  input[type=text]{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    outline: none;
+    min-width: 220px;
+  }
+  input[type=text]:focus{ border-color: var(--amber-dim); }
+
+  .btn{
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 13.5px;
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink);
+    cursor: pointer;
+    transition: filter .15s ease;
+  }
+  .btn:hover{ filter: brightness(1.15); }
+  .btn.primary{
+    background: var(--amber);
+    border-color: var(--amber);
+    color: #F1ECDD;
+  }
+  .btn.ghost{ background: transparent; }
+  .spacer{ flex: 1; }
+
+  .hint{
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin: 0 0 16px 0;
+  }
+
+  /* ---------- "MY AVAILABILITY" GRID (the checkbox-style schedule) ---------- */
+  .grid-scroll{
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+  }
+  table.avail-table{
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 720px;
+  }
+  table.avail-table th, table.avail-table td{
+    border: 1px solid var(--line);
+  }
+  table.avail-table thead th{
+    background: var(--panel-2);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 6px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--ink);
+  }
+  table.avail-table thead th:first-child{
+    cursor: default;
+    z-index: 3;
+    left: 0;
+  }
+  table.avail-table thead th span.sub{
+    display:block;
+    font-weight: 400;
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    margin-top: 2px;
+  }
+  .time-cell{
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    white-space: nowrap;
+    padding: 0 12px;
+    background: var(--panel-2);
+    position: sticky;
+    left: 0;
+    z-index: 1;
+  }
+  td.slot{
+    width: 82px;
+    height: 30px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--panel);
+    transition: background .1s ease;
+  }
+  td.slot:hover{ background: var(--panel-2); }
+  td.slot.on{
+    background: var(--amber);
+  }
+  td.slot .mark{
+    display:inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    background: transparent;
+  }
+  td.slot.on .mark{ background: #F1ECDD; }
+
+  .save-row{
+    display:flex;
+    align-items:center;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .save-msg{
+    font-size: 13px;
+    color: var(--heat-high);
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+  .save-msg.show{ opacity: 1; }
+
+  /* ---------- "TEAM AVAILABILITY" TAB (the aggregated group view) ---------- */
+  .team-meta{
+    display:flex;
+    align-items:center;
+    gap: 18px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .team-meta .roster{
+    font-size: 13.5px;
+    color: var(--ink-dim);
+  }
+  .team-meta .roster b{ color: var(--ink); }
+
+  table.team-table{
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 900px;
+  }
+  table.team-table th, table.team-table td{
+    border: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.team-table thead th{
+    background: var(--panel-2);
+    position: sticky;
+    top: 0;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 6px;
+  }
+  table.team-table .time-cell{
+    width: 128px;
+  }
+  td.heat{
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.45;
+    min-width: 118px;
+    color: #17140A;
+  }
+  td.heat.empty{
+    background: var(--heat-0);
+    color: var(--ink-dim);
+  }
+  .empty-note{
+    text-align:center;
+    padding: 60px 20px;
+    color: var(--ink-dim);
+    font-size: 14px;
+  }
+
+  .legend{
+    display:flex;
+    align-items:center;
+    gap: 14px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--ink-dim);
+    flex-wrap: wrap;
+  }
+  .legend .chip{
+    display:inline-flex;
+    align-items:center;
+    gap: 6px;
+  }
+  .legend .swatch{
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    display:inline-block;
+  }
+
+  @media (max-width: 640px){
+    h1{ font-size: 26px; }
+    body{ padding: 20px 14px 48px; }
+  }
+
+  .modal-overlay{
+    display:none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-box{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 22px 24px;
+    max-width: 360px;
+    width: 100%;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .modal-box p{
+    margin: 0 0 18px 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--ink);
+  }
+  .modal-box .btn.primary{
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- ============ HEADER ============ -->
+  <header class="top">
+    <div>
+      <h1>Sovereign Availability</h1>
+      <p>Check off when you're free, save, and the Team availability updates for everyone.</p>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="me">My availability</button>
+      <button class="tab-btn" data-tab="team">Team availability</button>
+    </div>
+  </header>
+  <!-- ============ TAB 1: MY AVAILABILITY ============
+       Each person types their own name, checks their free slots,
+       and hits Save. Their picks get written to the firestore database
+       under their name. -->
+  <section id="tab-me" class="active">
+    <div class="panel">
+      <div class="name-row">
+        <label for="nameInput">Your name</label>
+        <input type="text" id="nameInput" list="rosterList" placeholder="e.g. Yui">
+        <datalist id="rosterList"></datalist>
+        <button class="btn" id="loadBtn">Load my saved picks</button>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="selectAllBtn">Select all</button>
+        <button class="btn ghost" id="clearAllBtn">Clear all</button>
+      </div>
+      <p class="hint">Click a cell to toggle it, or click a day name to toggle the whole day. Don't forget to save! :D </p>
+      <div class="grid-scroll">
+        <table class="avail-table" id="meTable"></table>
+      </div>
+      <div class="save-row">
+        <button class="btn primary" id="saveBtn">Save my availability</button>
+        <span class="save-msg" id="saveMsg">Saved</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TAB 2: TEAM AVAILABILITY ============
+       Pulls everyone's saved picks from the database and shows,
+       for each time slot, who's free — color-coded by how many
+       people are available then. -->
+  <section id="tab-team">
+    <div class="panel">
+      <div class="team-meta">
+        <span class="roster">Team members: <b id="rosterCount">0</b></span>
+        <span class="roster" id="rosterNames"></span>
+        <div class="spacer"></div>
+        <button class="btn" id="refreshBtn">Refresh</button>
+      </div>
+      <div class="grid-scroll">
+        <div id="teamTableWrap"></div>
+      </div>
+      <div class="legend">
+        <span class="chip"><span class="swatch" style="background:var(--heat-0)"></span>No one yet</span>
+        <span class="chip"><span class="swatch" style="background:var(--heat-low)"></span>Few free</span>
+        <span class="chip"><span class="swatch" style="background:var(--heat-mid)"></span>About half</span>
+        <span class="chip"><span class="swatch" style="background:var(--heat-high)"></span>Most/all free</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="modal-overlay" id="alertOverlay">
+  <div class="modal-box">
+    <p id="alertMessage"></p>
+    <button class="btn primary" id="alertOkBtn">OK</button>
+  </div>
+</div>
+
+<script>
+  
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// SCHEDULE SHAPE
+// The grid is 7 days × 16 one-hour slots (8 AM through midnight).
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const START_HOURS = Array.from({length:16}, (_,i)=> i+8); // 8..23
+
+function fmtHour(h){
+  const hh = h % 24;
+  const period = hh < 12 ? 'AM' : 'PM';
+  let h12 = hh % 12; if(h12===0) h12 = 12;
+  return `${h12}:00 ${period}`;
+}
+function slotLabel(startHour){
+  return `${fmtHour(startHour)} – ${fmtHour(startHour+1)}`;
+}
+
+// Every slot in the grid gets a unique key like "Mon_0", "Tue_5", etc.
+// — day + the slot's index in START_HOURS. This key is what actually
+// gets saved to the database as true/false.
+function slotKey(day, idx){ return `${day}_${idx}`; }
+
+let meState = {}; // holds the currently-loaded/edited person's picks, e.g. { "Mon_0": true, ... }
+let currentName = '';
+
+function showAlert(message){
+  document.getElementById('alertMessage').textContent = message;
+  document.getElementById('alertOverlay').classList.add('show');
+}
+document.getElementById('alertOkBtn').addEventListener('click', () => {
+  document.getElementById('alertOverlay').classList.remove('show');
+});
+document.getElementById('alertOverlay').addEventListener('click', (e) => {
+  if(e.target.id === 'alertOverlay'){
+    document.getElementById('alertOverlay').classList.remove('show');
+  }
+});
+
+// STORAGE HELPERS (Firestore)
+// Two collections do all the work:
+//   meta/roster - list of everyone who's ever saved
+//   availability/{name} - one document per person's picks
+async function getRoster(){
+  try{
+    const doc = await db.collection('meta').doc('roster').get();
+    if(!doc.exists) return [];
+    return doc.data().names || [];
+  }catch(e){
+    console.error('getRoster failed', e);
+    return [];
+  }
+}
+async function addToRoster(name){
+  try{
+    await db.collection('meta').doc('roster').set({
+      names: firebase.firestore.FieldValue.arrayUnion(name)
+    }, { merge: true });
+  }catch(e){
+    console.error('addToRoster failed', e);
+  }
+}
+async function getAvailability(name){
+  try{
+    const doc = await db.collection('availability').doc(name).get();
+    if(!doc.exists) return {};
+    return doc.data().slots || {};
+  }catch(e){
+    console.error('getAvailability failed', e);
+    return {};
+  }
+}
+async function saveAvailability(name, slots){
+  try{
+    await db.collection('availability').doc(name).set({ slots });
+    return true;
+  }catch(e){
+    console.error('saveAvailability failed', e);
+    return false;
+  }
+}
+
+// My availability tab - building and interacting with the grid
+function buildMeTable(){
+  const table = document.getElementById('meTable');
+  let html = '<thead><tr><th></th>';
+  DAYS.forEach(d => { html += `<th data-day="${d}">${d}</th>`; });
+  html += '</tr></thead><tbody>';
+  START_HOURS.forEach((h, idx) => {
+    html += `<tr><td class="time-cell">${slotLabel(h)}</td>`;
+    DAYS.forEach(d => {
+      html += `<td class="slot" data-day="${d}" data-idx="${idx}"><span class="mark"></span></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+
+  // One click listener handles both single-cell toggles and
+  // whole-day-column toggles (clicking a day name in the header).
+  table.addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-day]');
+    if(th){
+      toggleDayColumn(th.dataset.day);
+      return;
+    }
+    const td = e.target.closest('td.slot');
+    if(td){
+      const key = slotKey(td.dataset.day, td.dataset.idx);
+      meState[key] = !meState[key];
+      td.classList.toggle('on', !!meState[key]);
+    }
+  });
+}
+
+function toggleDayColumn(day){
+  // If every cell in the day is already on, turn them all off;
+  // otherwise turn them all on. Feels like a natural "select day" toggle.
+  const cells = document.querySelectorAll(`#meTable td.slot[data-day="${day}"]`);
+  const allOn = Array.from(cells).every(td => meState[slotKey(day, td.dataset.idx)]);
+  cells.forEach(td => {
+    const key = slotKey(day, td.dataset.idx);
+    meState[key] = !allOn;
+    td.classList.toggle('on', !allOn);
+  });
+}
+
+function renderMeStateToGrid(){
+  // Syncs the visual grid to whatever's currently in meState 
+  // used after loading a saved schedule or select-all/clear-all.
+  document.querySelectorAll('#meTable td.slot').forEach(td => {
+    const key = slotKey(td.dataset.day, td.dataset.idx);
+    td.classList.toggle('on', !!meState[key]);
+  });
+}
+
+async function loadPlayer(name){
+  if(!name) return;
+  meState = await getAvailability(name);
+  renderMeStateToGrid();
+}
+
+async function populateRosterDatalist(){
+  // Powers the autocomplete suggestions under the name field, so
+  // returning teammates can just start typing their name.
+  const roster = await getRoster();
+  const list = document.getElementById('rosterList');
+  list.innerHTML = roster.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+
+function escapeHtml(s){
+  // Basic safety net so a name with special characters can't break
+  // the page's HTML.
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- "My availability" button handlers ----
+document.getElementById('loadBtn').addEventListener('click', async () => {
+  const name = document.getElementById('nameInput').value.trim();
+  if(!name){ showAlert("Maybe add your name so we can load your picks?"); return; }
+  try{
+    meState = await getAvailability(name);
+    renderMeStateToGrid();
+  }catch(e){
+    showAlert("Hm, that didn't load. Refresh the page and try again. If it keeps failing, let your manager know.");
+    console.error(e);
+  }
+});
+
+
+document.getElementById('selectAllBtn').addEventListener('click', () => {
+  DAYS.forEach(d => START_HOURS.forEach((h, idx) => meState[slotKey(d, idx)] = true));
+  renderMeStateToGrid();
+});
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  DAYS.forEach(d => START_HOURS.forEach((h, idx) => meState[slotKey(d, idx)] = false));
+  renderMeStateToGrid();
+});
+ 
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const name = document.getElementById('nameInput').value.trim();
+  if(!name){ showAlert("Maybe add your name so we can save it?"); return; }
+  const savedOk = await saveAvailability(name, meState);
+  if(!savedOk){
+    showAlert("That didn't save — your picks are still sitting here, untouched. Refresh the page and try again. If it keeps failing, let your manager know.");
+    return;
+  }
+  await addToRoster(name); // make sure they show up in the team view / name suggestions
+  await populateRosterDatalist();
+  const msg = document.getElementById('saveMsg');
+  msg.classList.add('show');
+  setTimeout(() => msg.classList.remove('show'), 1800);
+});
+
+// TEAM AVAILABILITY TAB — the aggregated group grid
+
+function heatColor(count, total){
+  if(total === 0 || count === 0) return null; // use empty style
+  const ratio = count / total;
+  if(ratio <= 0.34) return 'var(--heat-low)';
+  if(ratio <= 0.67) return 'var(--heat-mid)';
+  return 'var(--heat-high)';
+}
+
+async function renderTeamView(){
+  const roster = await getRoster();
+  document.getElementById('rosterCount').textContent = roster.length;
+  document.getElementById('rosterNames').textContent = roster.length ? roster.join(', ') : '';
+
+  const wrap = document.getElementById('teamTableWrap');
+  if(roster.length === 0){
+    wrap.innerHTML = '<div class="empty-note">No one has saved their availability yet. Have your team fill in the "My availability" tab.</div>';
+    return;
+  }
+
+  // Pull everyone's saved slots up front so we're not re-fetching
+  // per cell, one lookup per person, then just read from memory
+  // while building the table.
+  const allAvail = {};
+  for(const name of roster){
+    allAvail[name] = await getAvailability(name);
+  }
+
+  let html = '<table class="team-table"><thead><tr><th></th>';
+  DAYS.forEach(d => html += `<th>${d}</th>`);
+  html += '</tr></thead><tbody>';
+
+  START_HOURS.forEach((h, idx) => {
+    html += `<tr><td class="time-cell">${slotLabel(h)}</td>`;
+    DAYS.forEach(d => {
+      const key = slotKey(d, idx);
+      const names = roster.filter(n => allAvail[n][key]);
+      const color = heatColor(names.length, roster.length);
+      if(color){
+        html += `<td class="heat" style="background:${color}">${names.map(escapeHtml).join(', ')}</td>`;
+      } else {
+        html += `<td class="heat empty">—</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+document.getElementById('refreshBtn').addEventListener('click', renderTeamView);
+
+// TABS SWITCHING
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    if(btn.dataset.tab === 'team') renderTeamView();
+  });
+});
+
+// INIT — runs once when the page loads
+buildMeTable();
+populateRosterDatalist();
+</script>
+</body>
+</html>
